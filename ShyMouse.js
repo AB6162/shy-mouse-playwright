@@ -11,6 +11,8 @@ class ShyMouse {
     this.lastMoveTime = Date.now();
     this.moveHistory = []; // Track movement patterns
     this.maxHistoryLength = 50;
+    this.cachedViewport = null; // Cache viewport to reduce evaluate calls
+    this.viewportCacheTime = 0;
 
     // Enhanced configuration with realistic human parameters
     this.config = {
@@ -29,20 +31,64 @@ class ShyMouse {
   }
 
   /**
+   * Get viewport dimensions with caching to reduce evaluate calls
+   */
+  async getViewport() {
+    const now = Date.now();
+
+    // Cache viewport for 5 minutes (viewport rarely changes)
+    if (this.cachedViewport && (now - this.viewportCacheTime) < 300000) {
+      return this.cachedViewport;
+    }
+
+    try {
+      const viewport = await this.page.evaluate(() => {
+        return {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX || window.pageXOffset,
+          scrollY: window.scrollY || window.pageYOffset
+        };
+      });
+
+      this.cachedViewport = viewport;
+      this.viewportCacheTime = now;
+
+      return viewport;
+    } catch (error) {
+      // Fallback to default viewport if evaluate fails
+      console.warn('Failed to get viewport, using fallback:', error.message);
+      return {
+        width: 1920,
+        height: 1080,
+        scrollX: 0,
+        scrollY: 0
+      };
+    }
+  }
+
+  /**
+   * Invalidate viewport cache (call after page navigation or resize)
+   */
+  invalidateViewportCache() {
+    this.cachedViewport = null;
+    this.viewportCacheTime = 0;
+  }
+
+  /**
    * Enhanced viewport visibility check with partial visibility support
    */
-  async isElementInViewport(element, viewport, buffer = 10) {
+  async isElementInViewport(element, buffer = 10) {
     try {
       const box = await element.boundingBox();
       if (!box) return false;
 
-      const scrollY = await this.page.evaluate(() => window.scrollY);
-      const scrollX = await this.page.evaluate(() => window.scrollX);
+      const viewport = await this.getViewport();
 
-      const viewTop = scrollY - buffer;
-      const viewBottom = scrollY + viewport.height + buffer;
-      const viewLeft = scrollX - buffer;
-      const viewRight = scrollX + viewport.width + buffer;
+      const viewTop = viewport.scrollY - buffer;
+      const viewBottom = viewport.scrollY + viewport.height + buffer;
+      const viewLeft = viewport.scrollX - buffer;
+      const viewRight = viewport.scrollX + viewport.width + buffer;
 
       // Check both vertical and horizontal visibility
       const verticallyVisible = (box.y < viewBottom && box.y + box.height > viewTop);
@@ -55,13 +101,27 @@ class ShyMouse {
   }
 
   /**
-   * Get current scroll position with error handling
+   * Get current scroll position
    */
   async getCurrentScrollY() {
     try {
-      return await this.page.evaluate(() => window.scrollY);
+      return await this.page.evaluate(() => window.scrollY || window.pageYOffset || 0);
     } catch (error) {
       return 0;
+    }
+  }
+
+  /**
+   * Get current scroll position (X and Y)
+   */
+  async getCurrentScroll() {
+    try {
+      return await this.page.evaluate(() => ({
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0
+      }));
+    } catch (error) {
+      return { x: 0, y: 0 };
     }
   }
 
@@ -69,9 +129,9 @@ class ShyMouse {
    * Enhanced scroll simulation with human-like patterns
    */
   async scrollToElement(element, options = {}) {
-    const viewport = this.page.viewportSize();
+    const viewport = await this.getViewport();
 
-    if (await this.isElementInViewport(element, viewport, options.visibilityBuffer ?? 50)) {
+    if (await this.isElementInViewport(element, options.visibilityBuffer ?? 50)) {
       // Add micro-scroll even if visible (humans adjust)
       if (Math.random() < 0.3) {
         const microScroll = this.randomGaussian(0, 15);
@@ -146,7 +206,7 @@ class ShyMouse {
     }
 
     // Final micro-adjustment (humans fine-tune position)
-    await this.finalScrollAdjustment(element, viewport, box);
+    await this.finalScrollAdjustment(element, box);
 
     this.updateActionCount();
   }
@@ -248,8 +308,9 @@ class ShyMouse {
   /**
    * Final micro-adjustment to ensure visibility
    */
-  async finalScrollAdjustment(element, viewport, box) {
-    if (!await this.isElementInViewport(element, viewport, 0)) {
+  async finalScrollAdjustment(element, box) {
+    if (!await this.isElementInViewport(element, 0)) {
+      const viewport = await this.getViewport();
       const finalScrollY = await this.getCurrentScrollY();
       const finalDelta = (box.y + box.height / 2 - viewport.height / 2) - finalScrollY;
 
@@ -272,7 +333,7 @@ class ShyMouse {
     const box = await element.boundingBox();
     if (!box) throw new Error('Element has no bounding box');
 
-    const viewport = this.page.viewportSize();
+    const viewport = await this.getViewport();
 
     // Ensure element is visible with scroll
     try {
@@ -391,7 +452,7 @@ class ShyMouse {
    * Random move within viewport
    */
   async move(options = {}) {
-    const viewport = this.page.viewportSize();
+    const viewport = await this.getViewport();
 
     // Initialize position if needed
     if (this.lastPos.x === 0 && this.lastPos.y === 0) {
@@ -411,7 +472,7 @@ class ShyMouse {
    * Core movement function with enhanced Bezier curves
    */
   async moveToPosition(targetX, targetY, options = {}) {
-    const viewport = this.page.viewportSize();
+    const viewport = await this.getViewport();
 
     // Initialize if needed
     if (this.lastPos.x === 0 && this.lastPos.y === 0) {
@@ -431,7 +492,13 @@ class ShyMouse {
     // Execute movement with realistic timing
     for (let i = 0; i < points.length; i++) {
       const point = points[i];
-      await this.page.mouse.move(point.x, point.y);
+
+      try {
+        await this.page.mouse.move(point.x, point.y);
+      } catch (error) {
+        console.warn('Mouse move failed:', error.message);
+        continue;
+      }
 
       // Variable delay based on movement phase
       let delay;
@@ -656,11 +723,16 @@ class ShyMouse {
     const microX = currentPos.x + this.randomGaussian(0, 3);
     const microY = currentPos.y + this.randomGaussian(0, 3);
 
-    const viewport = this.page.viewportSize();
-    await this.page.mouse.move(
-      this.clamp(microX, 0, viewport.width),
-      this.clamp(microY, 0, viewport.height)
-    );
+    const viewport = await this.getViewport();
+
+    try {
+      await this.page.mouse.move(
+        this.clamp(microX, 0, viewport.width),
+        this.clamp(microY, 0, viewport.height)
+      );
+    } catch (error) {
+      // Silently fail for micro-adjustments
+    }
   }
 
   /**
@@ -826,6 +898,7 @@ class ShyMouse {
     this.config.actionCount = 0;
     this.config.attentionSpan = Math.random() * 0.15 + 0.85;
     this.moveHistory = [];
+    this.invalidateViewportCache();
   }
 }
 
