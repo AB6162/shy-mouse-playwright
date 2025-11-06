@@ -973,18 +973,23 @@ class ShyMouse {
     if (options.validateClick !== false && preClickState) {
       await this.randomDelay(50, 150);
 
-      const postClickState = await element.evaluate(el => {
-        try {
-          return {
-            className: el.className,
-            disabled: el.disabled,
-            ariaPressed: el.getAttribute('aria-pressed'),
-            ariaExpanded: el.getAttribute('aria-expanded'),
-          };
-        } catch (e) {
-          return null;
-        }
-      });
+      let postClickState = null;
+      try {
+        postClickState = await element.evaluate(el => {
+          try {
+            return {
+              className: el.className,
+              disabled: el.disabled,
+              ariaPressed: el.getAttribute('aria-pressed'),
+              ariaExpanded: el.getAttribute('aria-expanded'),
+            };
+          } catch (e) {
+            return null;
+          }
+        });
+      } catch (error) {
+        this.log('Post-click validation failed: element possibly removed or unavailable', error.message);
+      }
 
       if (postClickState) {
         const stateChanged =
@@ -995,7 +1000,11 @@ class ShyMouse {
 
         if (stateChanged) {
           this.log('Click validated: state changed');
+        } else {
+          this.log('Warning: No visible state change after click');
         }
+      } else {
+        this.log('Validation skipped: post-click state unavailable (click may have succeeded if element was removed)');
       }
     }
 
