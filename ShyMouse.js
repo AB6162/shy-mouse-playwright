@@ -971,41 +971,56 @@ class ShyMouse {
 
     // Validate click
     if (options.validateClick !== false && preClickState) {
-      await this.randomDelay(50, 150);
 
-      let postClickState = null;
-      try {
-        postClickState = await element.evaluate(el => {
-          try {
-            return {
-              className: el.className,
-              disabled: el.disabled,
-              ariaPressed: el.getAttribute('aria-pressed'),
-              ariaExpanded: el.getAttribute('aria-expanded'),
-            };
-          } catch (e) {
-            return null;
-          }
-        });
-      } catch (error) {
-        this.log('Post-click validation failed: element possibly removed or unavailable', error.message);
-      }
+      // Quick check if element is still accessible (timeout 10ms)
+      const navigationPromise = this.page.waitForNavigation({ timeout: 10 }).catch(() => null); // Detect quick nav
+      const isElementAccessible = await Promise.race([
+        navigationPromise,
+        element.evaluate(el => el.isConnected).catch(() => false) // Simple check, fast fail if stale
+      ]);
 
-      if (postClickState) {
-        const stateChanged =
-          preClickState.className !== postClickState.className ||
-          preClickState.disabled !== postClickState.disabled ||
-          preClickState.ariaPressed !== postClickState.ariaPressed ||
-          preClickState.ariaExpanded !== postClickState.ariaExpanded;
-
-        if (stateChanged) {
-          this.log('Click validated: state changed');
-        } else {
-          this.log('Warning: No visible state change after click');
-        }
+      if (isElementAccessible === null || !isElementAccessible) {
+        this.log('Skipping validation: element removed or navigation occurred (click likely succeeded)');
       } else {
-        this.log('Validation skipped: post-click state unavailable (click may have succeeded if element was removed)');
+
+        await this.randomDelay(50, 150);
+
+        let postClickState = null;
+        try {
+          postClickState = await element.evaluate(el => {
+            try {
+              return {
+                className: el.className,
+                disabled: el.disabled,
+                ariaPressed: el.getAttribute('aria-pressed'),
+                ariaExpanded: el.getAttribute('aria-expanded'),
+              };
+            } catch (e) {
+              return null;
+            }
+          });
+        } catch (error) {
+          this.log('Post-click validation failed: element possibly removed or unavailable', error.message);
+        }
+
+        if (postClickState) {
+          const stateChanged =
+            preClickState.className !== postClickState.className ||
+            preClickState.disabled !== postClickState.disabled ||
+            preClickState.ariaPressed !== postClickState.ariaPressed ||
+            preClickState.ariaExpanded !== postClickState.ariaExpanded;
+
+          if (stateChanged) {
+            this.log('Click validated: state changed');
+          } else {
+            this.log('Warning: No visible state change after click');
+          }
+        } else {
+          this.log('Validation skipped: post-click state unavailable (click may have succeeded if element was removed)');
+        }
+
       }
+
     }
 
     await this.postClickBehavior(clickTarget, viewport, options);

@@ -1,6 +1,6 @@
 {
   "name": "@ab6162/shy-mouse-playwright",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "A simple npm package to humanize mouse movements in Playwright or Patchright.",
   "main": "ShyMouse.js",
   "repository": {
