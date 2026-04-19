@@ -908,6 +908,12 @@ class ShyMouse {
     const maxWaitTime = options.waitTimeout ?? 5000;
     const startTime = Date.now();
 
+    try {
+      await this.scrollToElement(element, options);
+    } catch (error) {
+      this.log('Scroll failed:', error.message);
+    }
+
     while (Date.now() - startTime < maxWaitTime) {
       if (await this.isElementClickable(element)) {
         break;
@@ -925,12 +931,6 @@ class ShyMouse {
     }
 
     const viewport = await this.getViewport();
-
-    try {
-      await this.scrollToElement(element, options);
-    } catch (error) {
-      this.log('Scroll failed:', error.message);
-    }
 
     await this.randomDelay(120, 250);
 
