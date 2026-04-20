@@ -320,10 +320,11 @@ class ShyMouse {
 
           // Check pointer-events on ancestors
           let ancestor = el.parentElement;
-          while (ancestor && ancestor !== document.body) {
+          while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
             const ancestorStyle = window.getComputedStyle(ancestor);
             if (ancestorStyle.pointerEvents === 'none') return false;
-            ancestor = ancestor.parentElement;
+            const root = typeof ancestor.getRootNode === 'function' ? ancestor.getRootNode() : null;
+            ancestor = ancestor.parentElement || ancestor.assignedSlot || root?.host || null;
           }
 
           // Multi-point sampling (center + 4 cardinal points + 4 corners)
@@ -353,12 +354,24 @@ class ShyMouse {
               } else {
                 // Check if element is ancestor of topElement
                 let current = topElement;
-                while (current && current !== document.body) {
+                while (current && current !== document.body && current !== document.documentElement) {
                   if (current === el) {
                     clickablePoints++;
                     break;
                   }
-                  current = current.parentElement;
+                  const root = typeof current.getRootNode === 'function' ? current.getRootNode() : null;
+                  current = current.parentElement || current.assignedSlot || root?.host || null;
+                }
+
+                // Also accept wrapper/host elements that are ancestors of the target.
+                current = el;
+                while (current && current !== document.body && current !== document.documentElement) {
+                  if (current === topElement) {
+                    clickablePoints++;
+                    break;
+                  }
+                  const root = typeof current.getRootNode === 'function' ? current.getRootNode() : null;
+                  current = current.parentElement || current.assignedSlot || root?.host || null;
                 }
               }
             }
