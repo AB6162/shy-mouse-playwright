@@ -1,0 +1,18 @@
+# Excluir código fuente sin compilar
+src/
+
+# Excluir pruebas
+__tests__/
+*.test.js
+
+# Excluir configuraciones de desarrollo
+.eslintrc.json
+tsconfig.json
+.github/
+.vscode/
+
+# Ignorar documentación interna
+docs/
+
+/.agents
+opencode.json

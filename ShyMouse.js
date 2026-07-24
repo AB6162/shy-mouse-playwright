@@ -204,7 +204,18 @@ class ShyMouse {
       // Use evaluateHandle to get container reference without DOM modification
       const containerHandle = await element.evaluateHandle(el => {
         try {
-          let parent = el.parentElement;
+          // Helper: traverse shadow boundaries and slot assignments
+          function getComposedParentNode(node) {
+            if (!node) return null;
+            if (node.assignedSlot) return node.assignedSlot;
+            const parent = node.parentNode;
+            if (!parent) return null;
+            if (parent instanceof ShadowRoot) return parent.host;
+            if (parent instanceof Element) return parent;
+            return null;
+          }
+
+          let parent = getComposedParentNode(el);
           let depth = 0;
 
           while (parent && parent !== document.documentElement && depth < 50) {
@@ -215,7 +226,7 @@ class ShyMouse {
               return parent;
             }
 
-            parent = parent.parentElement;
+            parent = getComposedParentNode(parent);
             depth++;
           }
 
@@ -301,6 +312,48 @@ class ShyMouse {
     try {
       return await element.evaluate(el => {
         try {
+          // Helper: traverse shadow boundaries and slot assignments
+          function getComposedParentNode(node) {
+            if (!node) return null;
+            if (node.assignedSlot) return node.assignedSlot;
+            const parent = node.parentNode;
+            if (!parent) return null;
+            if (parent instanceof ShadowRoot) return parent.host;
+            if (parent instanceof Element) return parent;
+            return null;
+          }
+
+          // Helper: check if ancestor contains descendant across shadow boundaries
+          function composedContains(ancestor, descendant) {
+            let current = descendant;
+            let depth = 0;
+            while (current && depth < 100) {
+              if (current === ancestor) return true;
+              current = getComposedParentNode(current);
+              depth++;
+            }
+            return false;
+          }
+
+          // Helper: elementFromPoint that penetrates open shadow roots
+          function getComposedElementFromPoint(x, y) {
+            let element = document.elementFromPoint(x, y);
+            if (!element) return null;
+
+            let depth = 0;
+            while (element && element.shadowRoot && depth < 10) {
+              const innerElement = element.shadowRoot.elementFromPoint(x, y);
+              if (innerElement && innerElement !== element) {
+                element = innerElement;
+              } else {
+                break;
+              }
+              depth++;
+            }
+
+            return element;
+          }
+
           if (!el.isConnected) return false;
 
           const style = window.getComputedStyle(el);
@@ -318,12 +371,14 @@ class ShyMouse {
           if (style.pointerEvents === 'none') return false;
           if (el.disabled) return false;
 
-          // Check pointer-events on ancestors
-          let ancestor = el.parentElement;
-          while (ancestor && ancestor !== document.body) {
+          // Check pointer-events on ancestors (crosses shadow boundaries and slots)
+          let ancestor = getComposedParentNode(el);
+          let ancestorDepth = 0;
+          while (ancestor && ancestorDepth < 100) {
             const ancestorStyle = window.getComputedStyle(ancestor);
             if (ancestorStyle.pointerEvents === 'none') return false;
-            ancestor = ancestor.parentElement;
+            ancestor = getComposedParentNode(ancestor);
+            ancestorDepth++;
           }
 
           // Multi-point sampling (center + 4 cardinal points + 4 corners)
@@ -345,20 +400,23 @@ class ShyMouse {
             const x = rect.left + rect.width * point.x;
             const y = rect.top + rect.height * point.y;
 
-            const topElement = document.elementFromPoint(x, y);
+            // Use composed elementFromPoint that penetrates open shadow roots
+            const topElement = getComposedElementFromPoint(x, y);
 
             if (topElement) {
-              if (topElement === el || el.contains(topElement)) {
+              if (topElement === el || composedContains(el, topElement)) {
                 clickablePoints++;
               } else {
-                // Check if element is ancestor of topElement
+                // Check if element is ancestor of topElement (crosses shadow boundaries)
                 let current = topElement;
-                while (current && current !== document.body) {
+                let depth = 0;
+                while (current && depth < 100) {
                   if (current === el) {
                     clickablePoints++;
                     break;
                   }
-                  current = current.parentElement;
+                  current = getComposedParentNode(current);
+                  depth++;
                 }
               }
             }
@@ -400,9 +458,21 @@ class ShyMouse {
       } else {
         const inContainer = await element.evaluate((el, buff) => {
           try {
-            let parent = el.parentElement;
+            // Helper: traverse shadow boundaries and slot assignments
+            function getComposedParentNode(node) {
+              if (!node) return null;
+              if (node.assignedSlot) return node.assignedSlot;
+              const parent = node.parentNode;
+              if (!parent) return null;
+              if (parent instanceof ShadowRoot) return parent.host;
+              if (parent instanceof Element) return parent;
+              return null;
+            }
 
-            while (parent && parent !== document.documentElement) {
+            let parent = getComposedParentNode(el);
+            let depth = 0;
+
+            while (parent && parent !== document.documentElement && depth < 50) {
               const style = window.getComputedStyle(parent);
               const overflow = style.overflow + style.overflowY + style.overflowX;
 
@@ -416,7 +486,8 @@ class ShyMouse {
                 return hasVerticalOverlap && hasHorizontalOverlap;
               }
 
-              parent = parent.parentElement;
+              parent = getComposedParentNode(parent);
+              depth++;
             }
 
             return true;
@@ -645,9 +716,21 @@ class ShyMouse {
     } else {
       const scrollInfo = await element.evaluate((el, opts) => {
         try {
-          let parent = el.parentElement;
+          // Helper: traverse shadow boundaries and slot assignments
+          function getComposedParentNode(node) {
+            if (!node) return null;
+            if (node.assignedSlot) return node.assignedSlot;
+            const parent = node.parentNode;
+            if (!parent) return null;
+            if (parent instanceof ShadowRoot) return parent.host;
+            if (parent instanceof Element) return parent;
+            return null;
+          }
 
-          while (parent && parent !== document.documentElement) {
+          let parent = getComposedParentNode(el);
+          let depth = 0;
+
+          while (parent && parent !== document.documentElement && depth < 50) {
             const style = window.getComputedStyle(parent);
             const overflow = style.overflow + style.overflowY + style.overflowX;
 
@@ -680,7 +763,8 @@ class ShyMouse {
               };
             }
 
-            parent = parent.parentElement;
+            parent = getComposedParentNode(parent);
+            depth++;
           }
 
           return { found: false };
@@ -905,6 +989,33 @@ class ShyMouse {
    * Enhanced click
    */
   async click(element, options = {}) {
+    // 1. Verify element exists and has a bounding box
+    let box = await this.getElementBoundingBox(element);
+    if (!box) {
+      throw new Error('Element bounding box unavailable');
+    }
+
+    // 2. Get viewport and scroll to element FIRST if not in viewport
+    //    This fixes the deadlock where isElementClickable rejects off-screen elements
+    //    before scrollToElement ever gets called
+    let viewport = await this.getViewport();
+
+    if (!(await this.isElementInViewport(element, options.visibilityBuffer ?? 50))) {
+      try {
+        await this.scrollToElement(element, options);
+      } catch (error) {
+        this.log('Scroll failed:', error.message);
+      }
+      await this.randomDelay(120, 250);
+
+      // Re-get bounding box after scroll (position may have changed)
+      box = await this.getElementBoundingBox(element);
+      if (!box) {
+        throw new Error('Element bounding box unavailable after scroll');
+      }
+    }
+
+    // 3. NOW poll for clickability (element should be in viewport after scroll)
     const maxWaitTime = options.waitTimeout ?? 5000;
     const startTime = Date.now();
 
@@ -919,24 +1030,17 @@ class ShyMouse {
       throw new Error('Element is not clickable');
     }
 
+    // 4. Wait for element stability
     const stableBox = await this.waitForElementStability(element, options.stabilityTimeout ?? 1500);
     if (!stableBox) {
       throw new Error('Element position is unstable');
     }
 
-    const viewport = await this.getViewport();
-
-    try {
-      await this.scrollToElement(element, options);
-    } catch (error) {
-      this.log('Scroll failed:', error.message);
-    }
-
-    await this.randomDelay(120, 250);
-
-    const box = await this.getElementBoundingBox(element);
+    // 5. Re-get viewport and bounding box after stability check
+    viewport = await this.getViewport();
+    box = await this.getElementBoundingBox(element);
     if (!box) {
-      throw new Error('Element bounding box unavailable');
+      throw new Error('Element bounding box unavailable after stability check');
     }
 
     await this.humanReactionDelay();
